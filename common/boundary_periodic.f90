@@ -1,4 +1,5 @@
 module boundary_periodic
+  use cudafor
   use mpi
   implicit none
 
@@ -59,11 +60,10 @@ contains
 
 
   subroutine boundary_periodic__particle_x(up,np2)
-
-    use, intrinsic :: ieee_arithmetic
-
+    implicit none
     integer, intent(in)    :: np2(nys:nye,nsp)
     real(8), intent(inout) :: up(ndim,np,nys:nye,nsp)
+    type(dim3) :: Th, Bl
     integer                :: j, ii, isp, ipos
 
     if(.not.is_init)then
@@ -71,44 +71,51 @@ contains
        stop
     endif
 
-    call ieee_set_rounding_mode(ieee_down)
-
+    Th = dim3(64,1,1)
+    Bl = dim3(ceiling(real(nye-nys+1)/Th%x), ceiling(real(np)/Th%y), 1)
     do isp=1,nsp
-
-!$OMP PARALLEL DO PRIVATE(ii,j,ipos)
-       do j=nys,nye
-          do ii=1,np2(j,isp)
-
-             ipos = int(up(1,ii,j,isp)/delx)
-
-             if(ipos < nxgs)then
-                up(1,ii,j,isp) = up(1,ii,j,isp)+(nxge-nxgs+1)*delx
-             else if(ipos >= nxge+1)then
-                up(1,ii,j,isp) = up(1,ii,j,isp)-(nxge-nxgs+1)*delx
-             endif
-
-          enddo
-       enddo
-!$OMP END PARALLEL DO
-
+      call boundary_periodic__paricle_x_ker<<<Bl,Th>>>(up,np2,ndim,np,nsp,nxgs,nxge,nys,nye,isp,delx)
     enddo
 
   end subroutine boundary_periodic__particle_x
 
 
+  attributes(global) &
+  subroutine boundary_periodic__particle_x_ker(up,np2,ndim,np,nsp,nxgs,nxge,nys,nye,isp,delx)
+    use cudadevice
+    implicit none
+    integer, value                 :: ndim, np, nsp, nxgs, nxge, nys, nye, isp
+    real(8), value                 :: delx
+    integer, device, intent(in)    :: np2(nys:nye,nsp)
+    integer, device, intent(inout) :: up(ndim,np,nys:nye,nsp)
+    integer                        :: j, ii, ipos
+
+    j = (blockIdx%x-1)*blockDim%x+threadIdx%x+nys-1
+    ii = (blockIdx%y-1)*blockDim%y+threadIdx%y
+
+    if(nys <= j .and. j <= nye .and. 1 <= ii .and. ii <= np2(j, isp))then
+      ipos = int(__ddiv_rd(up(1, ii, j, isp),delx))
+
+      if(ipos < nxgs)then
+        up(1, ii, j, isp) = __fma_rd(dble(nxge-nxgs+1),delx,up(1,ii,j,isp))
+      else if(ipos >= nxge+1)then
+        up(1, ii, j, isp) = __fma_rd(-dble(nxge-nxgs+1),delx,up(1,ii,j,isp))
+      endif
+    endif
+
+  end subroutine boundary_periodic__particle_x_ker
+
+
   subroutine boundary_periodic__particle_y(up,np2)
-
-    use, intrinsic :: ieee_arithmetic
-!$  use omp_lib
-
-    integer, intent(inout)     :: np2(nys:nye,nsp)
-    real(8), intent(inout)     :: up(ndim,np,nys:nye,nsp)
-    logical, save              :: lflag=.true.
-!$  integer(omp_lock_kind)     :: lck(nys-1:nye+1)
-    integer                    :: j, ii, iii, isp, jpos, idim
-    integer                    :: cnt(nys-1:nye+1), cnt2(nys:nye), cnt_tmp
-    integer, save, allocatable :: flag(:,:)
-    real(8), save, allocatable :: bff_ptcl(:,:)
+    implicit none
+    integer, device, intent(inout)     :: np2(nys:nye,nsp)
+    real(8), device, intent(inout)     :: up(ndim,np,nys:nye,nsp)
+    logical, save                      :: lflag=.true.
+    integer                            :: j, ii, iii, isp, jpos, idim
+    integer, device                    :: cnt(nys-1:nye+1), cnt2(nys:nye), cnt_tmp
+    integer, device, save, allocatable :: flag(:,:)
+    real(8), device, save, allocatable :: bff_ptcl(:,:)
+    type(dim3)                         :: Th, Bl
 
     if(.not.is_init)then
        write(6,*)'Initialize first by calling boundary_periodic__init()'
@@ -121,54 +128,13 @@ contains
        lflag=.false.
     endif
 
-    call ieee_set_rounding_mode(ieee_down)
-    
-!$OMP PARALLEL DO PRIVATE(j)
-!$    do j=nys-1,nye+1
-!$       call omp_init_lock(lck(j))
-!$    enddo
-!$OMP END PARALLEL DO
-
     do isp=1,nsp
+       cnt = 0
+       cnt2 = 0
 
-!$OMP PARALLEL
-
-!$OMP WORKSHARE
-       cnt(nys-1:nye+1) = 0
-!$OMP END WORKSHARE
-!$OMP WORKSHARE
-       cnt2(nys:nye) = 0
-!$OMP END WORKSHARE
-
-!$OMP DO PRIVATE(ii,j,idim,jpos)
-       do j=nys,nye
-          do ii=1,np2(j,isp)
-
-             jpos = int(up(2,ii,j,isp)/delx)
-
-             if(jpos /= j)then
-                if(jpos <= nygs-1)then
-                   up(2,ii,j,isp) = up(2,ii,j,isp)+(nyge-nygs+1)*delx
-                else if(jpos >= nyge+1)then
-                   up(2,ii,j,isp) = up(2,ii,j,isp)-(nyge-nygs+1)*delx
-                endif
-
-!$              call omp_set_lock(lck(jpos))
-                do idim=1,ndim
-                  bff_ptcl(idim+ndim*cnt(jpos),jpos) = up(idim,ii,j,isp)
-                enddo
-                cnt(jpos) = cnt(jpos)+1
-!$              call omp_unset_lock(lck(jpos))
-
-                cnt2(j) = cnt2(j)+1
-                flag(cnt2(j),j) = ii
-             endif
-
-          enddo
-       enddo
-!$OMP END DO NOWAIT
-
-!$OMP END PARALLEL
+       Th = dim3(64,1,1)
+       Bl = dim3(ceiling(real(nye-nys+1)/Th%x),1,1)
+       call boundary_periodic__particle_y_ker1<<<*,*>>>(up,np2,cnt,cnt2,flag,bff_ptcl,ndim,np,nsp,nys,nye,isp,delx)
 
        !transfer to rank-1
        call MPI_SENDRECV(cnt(nys-1),1,mnpi,ndown,100, &
@@ -188,44 +154,11 @@ contains
                          ncomw,nstat,nerr)
        cnt(nys) = cnt(nys)+cnt_tmp
 
-!$OMP PARALLEL
+       Th = dim3(64,1,1)
+       Bl = dim3(ceiling(real(nye-nys+1)/Th%x),1,1)
 
-!$OMP DO PRIVATE(iii,ii,j,idim,cnt_tmp)
-       do j=nys,nye
-          iii=0
-          cnt_tmp = cnt2(j)
-          loop1 :do ii=1,cnt2(j)
-             if(cnt(j) == 0)then
-                if(np2(j,isp) < flag(ii,j)) exit loop1
-                do while(np2(j,isp) == flag(cnt_tmp,j))
-                   np2(j,isp) = np2(j,isp)-1
-                   if(np2(j,isp) < flag(ii,j)) exit loop1
-                   cnt_tmp = cnt_tmp-1
-                enddo
-                do idim=1,ndim
-                   up(idim,flag(ii,j),j,isp) = up(idim,np2(j,isp),j,isp)
-                enddo
-                np2(j,isp) = np2(j,isp)-1
-             else
-                do idim=1,ndim
-                  up(idim,flag(ii,j),j,isp) = bff_ptcl(idim+ndim*iii,j)
-                enddo
-                iii = iii+1
-                cnt(j) = cnt(j)-1
-             endif
-          enddo loop1
 
-          if(cnt(j) > 0)then
-             do ii=1,cnt(j)
-               do idim=1,ndim
-                 up(idim,np2(j,isp)+ii,j,isp) = bff_ptcl(ndim*iii+idim+ndim*(ii-1),j)
-               enddo
-             enddo
-          endif
-       enddo
-!$OMP END DO NOWAIT
-
-!$OMP DO PRIVATE(j)
+       !$cuf kernel do <<<*,*>>>
        do j=nys,nye
           np2(j,isp) = np2(j,isp)+cnt(j)
           if(np2(j,isp) > np) then
@@ -233,19 +166,99 @@ contains
              stop
           endif
        enddo
-!$OMP END DO NOWAIT
-
-!$OMP END PARALLEL
 
     enddo
 
-!$OMP PARALLEL DO PRIVATE(j)
-!$  do j=nys-1,nye+1
-!$     call omp_destroy_lock(lck(j))
-!$  enddo
-!$OMP END PARALLEL DO
-
   end subroutine boundary_periodic__particle_y
+
+
+  attributes(global) &
+  subroutine boundary_periodic__particle_y_ker1(up,np2,cnt,cnt2,flag,bff_ptcl,ndim,np,nsp,nys,nye,isp,delx)
+    use cudadevice
+    implicit none
+    integer, value                 :: ndim, np, nsp, nys, nye, isp
+    real(8), value                 :: delx
+    integer, device, intent(in)    :: np2(nys:nye, nsp)
+    real(8), device, intent(inout) :: up(ndim,np,nys:nye,nsp)
+    integer, device, intent(inout) :: cnt(nys-1:nye+1), cnt2(nys:nye)
+    integer, device, intent(inout) :: flag(np,nys:nye)
+    real(8), device, intent(inout) :: bff_ptcl(ndim*np,nys-1:nye+1)
+    integer                        :: tmp
+    
+    j = (blockIdx%x-1)*blockDim%x+threadIdx%x+nys-1
+    if (nys <= j .and. j <= nye) then
+      do ii = 1, np2(j,isp)
+        jpos = int(__ddiv_rd(up(2,ii,j,isp),delx))
+
+        if (jpos /= j) then
+          if (jpos <= nys-1) then
+            up(2,ii,j,isp) = __fma_rd(dble(nye-nys+1),delx,up(2,ii,j,isp))
+          else if (jpos >= nye+1) then
+            up(2,ii,j,isp) = __fma_rd(-dble(nye-nys+1),delx,up(2,ii,j,isp))
+          endif
+
+          tmp = atomicadd(cnt(jpos),1)
+          do idim = 1, ndim
+            bff_ptcl(idim+ndim*tmp,jpos) = up(idim,ii,j,isp)
+          enddo
+
+          tmp = atomicadd(cnt2(j),1)
+          flag(tmp+1, j) = ii
+        endif
+      enddo
+    endif
+
+  end subroutine boundary_periodic__particle_y_ker1
+
+
+  attributes(global) &
+  subroutine boundary_periodic__particle_y_ker2(up,np2,cnt,cnt2,flag,bff_ptcl,ndim,np,nsp,nys,nye,isp)
+    implicit none
+    integer, value                 :: ndim, np, nsp, nys, nye, isp
+    integer, device, intent(inout) :: np2(nys:nye,nsp)
+    real(8), device, intent(inout) :: up(ndim,np,nys:nye,nsp)
+    integer, device, intent(inout) :: cnt(nys-1:nye+1)
+    integer, device, intent(in)    :: cnt2(nys:nye)
+    integer, device, intent(in)    :: flag(np, nys:nye)
+    real(8), device, intent(in)    :: bff_ptcl(ndim*np,nys-1:nye+1)
+    integer                        :: cnt_tmp, idim, iii, ii, j
+
+    j = (blockIdx%x-1)*blockDim%x+threadIdx%x+nys-1
+    if(nys <= j .and. j <= nye)then
+      iii = 0
+      cnt_tmp = cnt2(j)
+      loop1: do ii = 1,cnt2(j)
+        if(cnt(j) == 0)then
+          if (np2(j,isp) < flag(ii,j)) exit loop1
+          do while (np2(j,isp) == flag(cnt_tmp,j))
+            np2(j,isp) = np2(j,isp)-1
+            if (np2(j,isp) < flag(ii,j)) exit loop1
+            cnt_tmp = cnt_tmp-1
+          end do
+          do idim = 1,ndim
+            up(idim,flag(ii,j),j,isp) = up(idim, np2(j,isp),j,isp)
+          end do
+          np2(j, isp) = np2(j, isp)-1
+        else
+          do idim = 1, ndim
+            up(idim, flag(ii, j), j, isp) = bff_ptcl(idim+ndim*iii,j)
+          end do
+          iii = iii+1
+          cnt(j) = cnt(j)-1
+        end if
+      enddo loop1
+
+      if(cnt(j) > 0)then
+        do ii = 1,cnt(j)
+          do idim = 1,ndim
+            up(idim, np2(j,isp)+ii,j,isp) = bff_ptcl(ndim*iii+idim+ndim*(ii-1),j)
+          enddo
+        enddo
+      endif
+    endif
+
+
+  end subroutine boundary_periodic__particle_y_ker2
 
 
   subroutine boundary_periodic__dfield(df,nxs,nxe,nys,nye,nxgs,nxge)
