@@ -263,17 +263,17 @@ contains
 
   subroutine boundary_periodic__dfield(df,nxs,nxe,nys,nye,nxgs,nxge)
 
-    integer, intent(in)    :: nxs, nxe, nys, nye, nxgs, nxge
-    real(8), intent(inout) :: df(6,nxgs-2:nxge+2,nys-2:nye+2)
-    integer                :: i, ii
-    real(8)                :: bff_snd(12*(nxe-nxs+1)), bff_rcv(12*(nxe-nxs+1))
+    integer, intent(in)            :: nxs, nxe, nys, nye, nxgs, nxge
+    real(8), device, intent(inout) :: df(6,nxgs-2:nxge+2,nys-2:nye+2)
+    integer                        :: i, j, ii, ieq
+    real(8), device                :: bff_snd(12*(nxe-nxs+1)), bff_rcv(12*(nxe-nxs+1))
 
     if(.not.is_init)then
        write(6,*)'Initialize first by calling boundary_periodic__init()'
        stop
     endif
 
-!$OMP PARALLEL DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs,nxe
        ii = 12*(i-nxs)
        bff_snd(ii+1)  = df(1,i,nys)
@@ -289,15 +289,12 @@ contains
        bff_snd(ii+11) = df(5,i,nys+1)
        bff_snd(ii+12) = df(6,i,nys+1)
     enddo
-!$OMP END PARALLEL DO
 
     call MPI_SENDRECV(bff_snd(1),12*(nxe-nxs+1),mnpr,ndown,110, &
                       bff_rcv(1),12*(nxe-nxs+1),mnpr,nup  ,110, &
                       ncomw,nstat,nerr)
 
-!$OMP PARALLEL
-
-!$OMP DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs,nxe
        ii = 12*(i-nxs)
        df(1,i,nye+1) = bff_rcv(ii+1)
@@ -313,9 +310,8 @@ contains
        df(5,i,nye+2) = bff_rcv(ii+11)
        df(6,i,nye+2) = bff_rcv(ii+12)
     enddo
-!$OMP END DO NOWAIT
 
-!$OMP DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs,nxe
        ii = 12*(i-nxs)
        bff_snd(ii+1)  = df(1,i,nye-1)
@@ -331,15 +327,12 @@ contains
        bff_snd(ii+11) = df(5,i,nye)
        bff_snd(ii+12) = df(6,i,nye)
     enddo
-!$OMP END DO NOWAIT
-
-!$OMP END PARALLEL
 
     call MPI_SENDRECV(bff_snd(1),12*(nxe-nxs+1),mnpr,nup  ,100, &
                       bff_rcv(1),12*(nxe-nxs+1),mnpr,ndown,100, &
                       ncomw,nstat,nerr)
 
-!$OMP PARALLEL DO PRIVATE(i,ii)
+    !$cuf kenel do <<<*,*>>>
     do i=nxs,nxe
        ii = 12*(i-nxs)
        df(1,i,nys-2) = bff_rcv(ii+1)
@@ -355,22 +348,24 @@ contains
        df(5,i,nys-1) = bff_rcv(ii+11)
        df(6,i,nys-1) = bff_rcv(ii+12)
     enddo
-!$OMP END PARALLEL DO
 
-!$OMP WORKSHARE
-    df(1:6,nxs-1,nys-2:nye+2) = df(1:6,nxe,nys-2:nye+2)
-    df(1:6,nxe+1,nys-2:nye+2) = df(1:6,nxs,nys-2:nye+2)
-!$OMP END WORKSHARE
+    !$cuf kernel do (2) <<<*,*>>>
+    do j = nys-2,nye+2
+      do ieq = 1,6
+         df(ieq,nxs-1,j) = df(ieq,nxe,j)
+         df(ieq,nxe+1,j) = df(ieq,nxs,j)
+      enddo
+    enddo
 
   end subroutine boundary_periodic__dfield
 
 
   subroutine boundary_periodic__curre(uj,nxs,nxe,nys,nye,nxgs,nxge)
 
-    integer, intent(in)    :: nxs, nxe, nys, nye, nxgs, nxge
-    real(8), intent(inout) :: uj(3,nxgs-2:nxge+2,nys-2:nye+2)
-    integer                :: i, ii
-    real(8)                :: bff_rcv(6*(nxe-nxs+4+1)), bff_snd(6*(nxe-nxs+4+1))
+    integer, intent(in)            :: nxs, nxe, nys, nye, nxgs, nxge
+    real(8), device, intent(inout) :: uj(3,nxgs-2:nxge+2,nys-2:nye+2)
+    integer                        :: i, ii
+    real(8), device                :: bff_rcv(6*(nxe-nxs+4+1)), bff_snd(6*(nxe-nxs+4+1))
 
     if(.not.is_init)then
        write(6,*)'Initialize first by calling boundary_periodic__init()'
@@ -378,7 +373,7 @@ contains
     endif
 
     !send to rank-1
-!$OMP PARALLEL DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs-2,nxe+2
        ii = 6*(i-(nxs-2))
        bff_snd(ii+1) = uj(1,i,nys-2)
@@ -388,15 +383,12 @@ contains
        bff_snd(ii+5) = uj(2,i,nys-1)
        bff_snd(ii+6) = uj(3,i,nys-1)
     enddo
-!$OMP END PARALLEL DO
 
     call MPI_SENDRECV(bff_snd(1),6*(nxe-nxs+4+1),mnpr,ndown,110, &
                       bff_rcv(1),6*(nxe-nxs+4+1),mnpr,nup  ,110, &
                       ncomw,nstat,nerr)
 
-!$OMP PARALLEL
-
-!$OMP DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs-2,nxe+2
        ii = 6*(i-(nxs-2))
        uj(1,i,nye-1) = uj(1,i,nye-1)+bff_rcv(ii+1)
@@ -406,10 +398,9 @@ contains
        uj(2,i,nye  ) = uj(2,i,nye  )+bff_rcv(ii+5)
        uj(3,i,nye  ) = uj(3,i,nye  )+bff_rcv(ii+6)
     enddo
-!$OMP END DO NOWAIT
 
     !send to rank+1
-!$OMP DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs-2,nxe+2
        ii = 6*(i-(nxs-2))
        bff_snd(ii+1) = uj(1,i,nye+1)
@@ -419,15 +410,12 @@ contains
        bff_snd(ii+5) = uj(2,i,nye+2)
        bff_snd(ii+6) = uj(3,i,nye+2)
     enddo
-!$OMP END DO NOWAIT
-
-!$OMP END PARALLEL
 
     call MPI_SENDRECV(bff_snd(1),6*(nxe-nxs+4+1),mnpr,nup  ,120, &
                       bff_rcv(1),6*(nxe-nxs+4+1),mnpr,ndown,120, &
                       ncomw,nstat,nerr)
 
-!$OMP PARALLEL DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs-2,nxe+2
        ii = 6*(i-(nxs-2))
        uj(1,i,nys  ) = uj(1,i,nys  )+bff_rcv(ii+1)
@@ -437,12 +425,11 @@ contains
        uj(2,i,nys+1) = uj(2,i,nys+1)+bff_rcv(ii+5)
        uj(3,i,nys+1) = uj(3,i,nys+1)+bff_rcv(ii+6)
     enddo
-!$OMP END PARALLEL DO
 
 !#####    !Update of nori-shiro   #####
 
     !send to rank-1
-!$OMP PARALLEL DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs-2,nxe+2
        ii = 6*(i-(nxs-2))
        bff_snd(ii+1) = uj(1,i,nys)
@@ -452,15 +439,12 @@ contains
        bff_snd(ii+5) = uj(2,i,nys+1)
        bff_snd(ii+6) = uj(3,i,nys+1)
     enddo
-!$OMP END PARALLEL DO
 
     call MPI_SENDRECV(bff_snd(1),6*(nxe-nxs+4+1),mnpr,ndown,130, &
                       bff_rcv(1),6*(nxe-nxs+4+1),mnpr,nup  ,130, &
                       ncomw,nstat,nerr)
 
-!$OMP PARALLEL
-
-!$OMP DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs-2,nxe+2
        ii = 6*(i-(nxs-2))
        uj(1,i,nye+1) = bff_rcv(ii+1)
@@ -470,10 +454,9 @@ contains
        uj(2,i,nye+2) = bff_rcv(ii+5)
        uj(3,i,nye+2) = bff_rcv(ii+6)
     enddo
-!$OMP END DO NOWAIT
 
     !send to rank+1
-!$OMP DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs-2,nxe+2
        ii = 6*(i-(nxs-2))
        bff_snd(ii+1) = uj(1,i,nye-1)
@@ -483,15 +466,12 @@ contains
        bff_snd(ii+5) = uj(2,i,nye)
        bff_snd(ii+6) = uj(3,i,nye)
     enddo
-!$OMP END DO NOWAIT
-
-!$OMP END PARALLEL
 
     call MPI_SENDRECV(bff_snd(1),6*(nxe-nxs+4+1),mnpr,nup  ,140, &
                       bff_rcv(1),6*(nxe-nxs+4+1),mnpr,ndown,140, &
                       ncomw,nstat,nerr)
 
-!$OMP PARALLEL DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs-2,nxe+2
        ii = 6*(i-(nxs-2))
        uj(1,i,nys-2) = bff_rcv(ii+1)
@@ -501,80 +481,79 @@ contains
        uj(2,i,nys-1) = bff_rcv(ii+5)
        uj(3,i,nys-1) = bff_rcv(ii+6)
     enddo
-!$OMP END PARALLEL DO
 
-!$OMP WORKSHARE
-    uj(1:3,nxe-1,nys-2:nye+2) = uj(1:3,nxe-1,nys-2:nye+2)+uj(1:3,nxs-2,nys-2:nye+2)
-    uj(1:3,nxe  ,nys-2:nye+2) = uj(1:3,nxe  ,nys-2:nye+2)+uj(1:3,nxs-1,nys-2:nye+2)
-    uj(1:3,nxs  ,nys-2:nye+2) = uj(1:3,nxs  ,nys-2:nye+2)+uj(1:3,nxe+1,nys-2:nye+2)
-    uj(1:3,nxs+1,nys-2:nye+2) = uj(1:3,nxs+1,nys-2:nye+2)+uj(1:3,nxe+2,nys-2:nye+2)
-!$OMP END WORKSHARE
-!$OMP WORKSHARE
-    uj(1:3,nxs-2,nys-2:nye+2) = uj(1:3,nxe-1,nys-2:nye+2)
-    uj(1:3,nxs-1,nys-2:nye+2) = uj(1:3,nxe  ,nys-2:nye+2)
-    uj(1:3,nxe+1,nys-2:nye+2) = uj(1:3,nxs  ,nys-2:nye+2)
-    uj(1:3,nxe+2,nys-2:nye+2) = uj(1:3,nxs+1,nys-2:nye+2)
-!$OMP END WORKSHARE
+    !$cuf kernel (2) do <<<*,*>>>
+    do j = nys-2,nye+2
+      do ieq = 1,3
+         uj(ieq,nxe-1,j) = uj(ieq,nxe-1,j)+uj(ieq,nxs-2,j)
+         uj(ieq,nxe  ,j) = uj(ieq,nxe  ,j)+uj(ieq,nxs-1,j)
+         uj(ieq,nxs  ,j) = uj(ieq,nxs  ,j)+uj(ieq,nxe+1,j)
+         uj(ieq,nxs+1,j) = uj(ieq,nxs+1,j)+uj(ieq,nxe+2,j)
+      enddo
+   enddo
+
+   !$cuf kernel do (2) <<<*,*>>>
+   do j = nys-2,nye+2
+      do ieq = 1,3
+         uj(ieq,nxs-2,j) = uj(ieq,nxe-1,j)
+         uj(ieq,nxs-1,j) = uj(ieq,nxe  ,j)
+         uj(ieq,nxe+1,j) = uj(ieq,nxs  ,j)
+         uj(ieq,nxe+2,j) = uj(ieq,nxs+1,j)
+      enddo
+   enddo
 
   end subroutine boundary_periodic__curre
 
 
   subroutine boundary_periodic__phi(phi,nxs,nxe,nys,nye,l)
 
-    integer, intent(in)    :: nxs, nxe, nys, nye, l
-    real(8), intent(inout) :: phi(nxs-1:nxe+1,nys-1:nye+1)
-    integer                :: i, ii
-    real(8)                :: bff_snd(nxe-nxs+1), bff_rcv(nxe-nxs+1)
+    integer, intent(in)            :: nxs, nxe, nys, nye, l
+    real(8), devive, intent(inout) :: phi(nxs-1:nxe+1,nys-1:nye+1)
+    integer                        :: i, ii
+    real(8), device                :: bff_snd(nxe-nxs+1), bff_rcv(nxe-nxs+1)
 
     if(.not.is_init)then
        write(6,*)'Initialize first by calling boundary_periodic__init()'
        stop
     endif
 
-!$OMP PARALLEL DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs,nxe
        ii = i-nxs
        bff_snd(ii+1)  = phi(i,nys)
     enddo
-!$OMP END PARALLEL DO
 
     call MPI_SENDRECV(bff_snd(1),nxe-nxs+1,mnpr,ndown,110, &
                       bff_rcv(1),nxe-nxs+1,mnpr,nup  ,110, &
                       ncomw,nstat,nerr)
 
-!$OMP PARALLEL
-
-!$OMP DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs,nxe
        ii = i-nxs
        phi(i,nye+1) = bff_rcv(ii+1)
     enddo
-!$OMP END DO NOWAIT
 
-!$OMP DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs,nxe
        ii = i-nxs
        bff_snd(ii+1)  = phi(i,nye)
     enddo
-!$OMP END DO NOWAIT
-
-!$OMP END PARALLEL
 
     call MPI_SENDRECV(bff_snd(1),nxe-nxs+1,mnpr,nup  ,100, &
                       bff_rcv(1),nxe-nxs+1,mnpr,ndown,100, &
                       ncomw,nstat,nerr)
 
-!$OMP PARALLEL DO PRIVATE(i,ii)
+    !$cuf kernel do <<<*,*>>>
     do i=nxs,nxe
        ii = i-nxs
        phi(i,nys-1) = bff_rcv(ii+1)
     enddo
-!$OMP END PARALLEL DO
 
-!$OMP WORKSHARE
-    phi(nxs-1,nys-1:nye+1) = phi(nxe,nys-1:nye+1)
-    phi(nxe+1,nys-1:nye+1) = phi(nxs,nys-1:nye+1)
-!$OMP END WORKSHARE
+    !$cuf kernel do <<<*,*>>>
+    do j=nys-1,nye+1
+      phi(nxs-1,j) = phi(nxe,j)
+      phi(nxe+1,j) = phi(nxs,j)
+    enddo
 
   end subroutine boundary_periodic__phi
 
