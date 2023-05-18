@@ -1,4 +1,5 @@
 module app
+  use cudafor
   use iso_fortran_env, only: int64
   use mpi
   use wuming2d
@@ -80,6 +81,13 @@ module app
   real(8)                      :: delt
   real(8)                      :: b0
 
+  !
+  ! device variables
+  !
+  integer, device, allocatable, public :: np2_d(:,:), cumcnt_d(:,:,:)
+  real(8), device, allocatable, public :: uf_d(:,:,:)
+  real(8), device, allocatable, public :: up_d(:,:,:,:)
+  real(8), device, allocatable, public :: gp_d(:,:,:,:)
 contains
   !
   ! main simulation loop
@@ -93,31 +101,49 @@ contains
     call load_config()
     call init()
 
+    ! allocate device memory
+    allocate(np2_d,source=np2)
+    allocate(cumcnt_d,source=cumcnt)
+    allocate(uf_d,source=uf)
+    allocate(up_d,source=up)
+    allocate(gp_d,source=gp)
+
     ! current clock
     etime0 = get_etime()
 
     ! main loop
     do it = it0+1, max_it
        ! update
-       call particle__solv(gp, up, uf, cumcnt, nxs, nxe)
-       call field__fdtd_i(uf, up, gp, cumcnt, nxs, nxe, &
+       call particle__solv(gp_d, up_d, uf_d, cumcnt_d, nxs, nxe)
+       call field__fdtd_i(uf_d, up_d, gp_d, cumcnt_d, nxs, nxe, &
             & bc__dfield, bc__curre, bc__phi)
-       call bc__particle_x(gp, np2)
-       call bc__particle_y(gp, np2)
-       call sort__bucket(up, gp, cumcnt, np2, nxs, nxe)
+       call bc__particle_x(gp_d, np2_d)
+       call bc__particle_y(gp_d, np2_d)
+       call sort__bucket(up_d, gp_d, cumcnt_d, np2_d, nxs, nxe)
 
        ! output entire particles
        if ( mod(it, intvl_ptcl) == 0 ) then
+          up = up_d
+          uf = uf_d
+          np2 = np2_d
           call io__ptcl(up, uf, np2, it)
        end if
 
        ! ouput tracer particles
        if ( mod(it, intvl_orb) == 0 ) then
+          up = up_d
+          uf = uf_d
+          np2 = np2_d
           call io__orb(up, uf, np2, it)
        end if
 
        ! output moments and electromagnetic fields
        if ( mod(it, intvl_mom) == 0 ) then
+          gp = gp_d
+          up = up_d
+          uf = uf_d
+          cumcnt = cumcnt_d
+          np2 = np2_d
           call mom_calc__accl(gp, up, uf, cumcnt, nxs, nxe)
           call mom_calc__nvt(mom, gp, np2)
           call bc__mom(mom)
@@ -129,6 +155,9 @@ contains
        etime = get_etime() - etime0
        if ( etime >= max_elapsed ) then
           ! save snapshoft for restart
+          up = up_d
+          uf = uf_d
+          np2 = np2_d
           write(restart_file, '(i7.7, "_restart")') it
           call save_restart(up, uf, np2, nxs, nxe, it, restart_file)
 
@@ -150,6 +179,9 @@ contains
 
     ! save final state
     it = max_it + 1
+    up = up_d
+    uf = uf_d 
+    np2 = np2_d
     write(restart_file, '(i7.7, "_restart")') it
     call save_restart(up, uf, np2, nxs, nxe, it, restart_file)
     call finalize()
@@ -349,7 +381,7 @@ contains
     if ( restart ) then
        ! restart
        call io__input(gp, uf, np2, nxs, nxe, it0, restart_file)
-       call sort__bucket(up, gp, cumcnt, np2, nxs, nxe)
+       call sort__bucket(up_d, gp_d, cumcnt_d, np2_d, nxs, nxe)
     else
        ! output parameters and set initial condition
        call save_param(n0, wpe, wpi, wge, wgi, vti, vte, param)

@@ -78,8 +78,8 @@ contains
     enddo
 
     Th = dim3(64,1,1)
-    Bl = Bl = dim3(ceiling(real(nxe-nxs+1)/Th%x),ceiling(real(nye-nys+1)/Th%y),1)
-    call particle__solv_ker<<<Bl,Th>>>(gp,up,uf,tmp,cumcnt,ndim,np,nsp,nxgs,nxge,nxs,nxe,nys,nye,q,r,delt,d_delx)
+    Bl = dim3(ceiling(real(nxe-nxs+1)/Th%x),ceiling(real(nye-nys+1)/Th%y),1)
+    call particle__solv_ker<<<Bl,Th>>>(gp,up,uf,tmp,cumcnt,ndim,np,nsp,nxgs,nxge,nxs,nxe,nys,nye,c,q(1),q(2),r(1),r(2),delt,d_delx)
 
     if(ndim == 6)then
       !$cuf kernel do (3) <<<*,*>>>
@@ -95,10 +95,10 @@ contains
   end subroutine particle__solv
   
   attributes(global) &
-  subroutine particle__solv_ker(gp,up,uf,tmp,cumcnt,ndim,np,nsp,nsge,nxge,nxs,nxe,nys,nye,q,r,delt,d_delx)
+  subroutine particle__solv_ker(gp,up,uf,tmp,cumcnt,ndim,np,nsp,nxgs,nxge,nxs,nxe,nys,nye,c,q1,q2,r1,r2,delt,d_delx)
     implicit none
     integer, value :: ndim, np, nsp, nxgs, nxge, nxs, nxe, nys, nye
-    real(8), value :: q(nsp), r(nsp), delt, d_delx
+    real(8), value :: c, q1, q2, r1, r2, delt, d_delx
 
     integer, device, intent(in) :: cumcnt(nxgs:nxge+1,nys:nye,nsp)
     real(8), device, intent(in) :: up(ndim, np, nys:nye, nsp)
@@ -112,6 +112,12 @@ contains
     real(8) :: fac1, fac2, txxx, fac1r, fac2r, gam, igam
     real(8) :: bpx, bpy, bpz, epx, epy, epz
     real(8) :: uvm1, uvm2, uvm3, uvm4, uvm5, uvm6
+    real(8) :: q(2), r(2)
+
+    q(1) = q1
+    q(2) = q2
+    r(1) = r1
+    r(2) = r2
 
     i = (blockIdx%x-1)*blockDim%x+threadIdx%x+nxs-1
     j = (blockIdx%y-1)*blockDim%y+threadIdx%y+nys-1

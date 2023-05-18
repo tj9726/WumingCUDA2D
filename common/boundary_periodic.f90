@@ -1,6 +1,6 @@
 module boundary_periodic
-  use cudafor
   use mpi
+  use cudafor
   implicit none
 
   private
@@ -61,9 +61,9 @@ contains
 
   subroutine boundary_periodic__particle_x(up,np2)
     implicit none
-    integer, intent(in)    :: np2(nys:nye,nsp)
-    real(8), intent(inout) :: up(ndim,np,nys:nye,nsp)
-    type(dim3) :: Th, Bl
+    integer, device, intent(in)    :: np2(nys:nye,nsp)
+    real(8), device, intent(inout) :: up(ndim,np,nys:nye,nsp)
+    type(dim3)                     :: Th, Bl
     integer                :: j, ii, isp, ipos
 
     if(.not.is_init)then
@@ -74,7 +74,7 @@ contains
     Th = dim3(64,1,1)
     Bl = dim3(ceiling(real(nye-nys+1)/Th%x), ceiling(real(np)/Th%y), 1)
     do isp=1,nsp
-      call boundary_periodic__paricle_x_ker<<<Bl,Th>>>(up,np2,ndim,np,nsp,nxgs,nxge,nys,nye,isp,delx)
+      call boundary_periodic__particle_x_ker<<<Bl,Th>>>(up,np2,ndim,np,nsp,nxgs,nxge,nys,nye,isp,delx)
     enddo
 
   end subroutine boundary_periodic__particle_x
@@ -87,7 +87,7 @@ contains
     integer, value                 :: ndim, np, nsp, nxgs, nxge, nys, nye, isp
     real(8), value                 :: delx
     integer, device, intent(in)    :: np2(nys:nye,nsp)
-    integer, device, intent(inout) :: up(ndim,np,nys:nye,nsp)
+    real(8), device, intent(inout) :: up(ndim,np,nys:nye,nsp)
     integer                        :: j, ii, ipos
 
     j = (blockIdx%x-1)*blockDim%x+threadIdx%x+nys-1
@@ -111,7 +111,7 @@ contains
     integer, device, intent(inout)     :: np2(nys:nye,nsp)
     real(8), device, intent(inout)     :: up(ndim,np,nys:nye,nsp)
     logical, save                      :: lflag=.true.
-    integer                            :: j, ii, iii, isp, jpos, idim
+    integer                            :: j, isp, cnt_tmp_h, cnt1_h, cnt2_h
     integer, device                    :: cnt(nys-1:nye+1), cnt2(nys:nye), cnt_tmp
     integer, device, save, allocatable :: flag(:,:)
     real(8), device, save, allocatable :: bff_ptcl(:,:)
@@ -134,29 +134,43 @@ contains
 
        Th = dim3(64,1,1)
        Bl = dim3(ceiling(real(nye-nys+1)/Th%x),1,1)
-       call boundary_periodic__particle_y_ker1<<<*,*>>>(up,np2,cnt,cnt2,flag,bff_ptcl,ndim,np,nsp,nys,nye,isp,delx)
+       call boundary_periodic__particle_y_ker1<<<Bl,Th>>>(up,np2,cnt,cnt2,flag,bff_ptcl,ndim,np,nsp,nys,nye,isp,delx)
 
        !transfer to rank-1
        call MPI_SENDRECV(cnt(nys-1),1,mnpi,ndown,100, &
                          cnt_tmp   ,1,mnpi,nup  ,100, &
                          ncomw,nstat,nerr)
-       call MPI_SENDRECV(bff_ptcl(1              ,nys-1),ndim*cnt(nys-1),mnpr,ndown,101, &
-                         bff_ptcl(ndim*cnt(nye)+1,nye  ),ndim*cnt_tmp   ,mnpr,nup  ,101, &
+
+       cnt_tmp_h = cnt_tmp
+       cnt1_h = cnt(nys-1)
+       cnt2_h = cnt(nye)
+
+       call MPI_SENDRECV(bff_ptcl(1          ,nys-1),ndim*cnt1_h   ,mnpr,ndown,101, &
+                         bff_ptcl(ndim*cnt2_h+1,nye),ndim*cnt_tmp_h,mnpr,nup  ,101, &
                          ncomw,nstat,nerr)
-       cnt(nye) = cnt(nye)+cnt_tmp
+
+       cnt_tmp_h = cnt_tmp_h+cnt(nye)
+       cnt(nye) = cnt_tmp_h
 
        !transfer to rank+1
        call MPI_SENDRECV(cnt(nye+1),1,mnpi,nup  ,200, &
                          cnt_tmp   ,1,mnpi,ndown,200, &
                          ncomw,nstat,nerr)
-       call MPI_SENDRECV(bff_ptcl(1              ,nye+1),ndim*cnt(nye+1),mnpr,nup  ,201, &
-                         bff_ptcl(ndim*cnt(nys)+1,nys  ),ndim*cnt_tmp   ,mnpr,ndown,201, &
+
+       cnt_tmp_h = cnt_tmp
+       cnt1_h = cnt(nye+1)
+       cnt2_h = cnt(nys)
+
+       call MPI_SENDRECV(bff_ptcl(1          ,nye+1),ndim*cnt1_h   ,mnpr,nup  ,201, &
+                         bff_ptcl(ndim*cnt2_h+1,nys),ndim*cnt_tmp_h,mnpr,ndown,201, &
                          ncomw,nstat,nerr)
-       cnt(nys) = cnt(nys)+cnt_tmp
+
+       cnt_tmp_h = cnt_tmp_h+cnt(nys)
+       cnt(nys) = cnt_tmp_h
 
        Th = dim3(64,1,1)
        Bl = dim3(ceiling(real(nye-nys+1)/Th%x),1,1)
-
+       call boundary_periodic__particle_y_ker2<<<Bl,Th>>>(up,np2,cnt,cnt2,flag,bff_ptcl,ndim,np,nsp,nys,nye,isp)
 
        !$cuf kernel do <<<*,*>>>
        do j=nys,nye
@@ -183,8 +197,8 @@ contains
     integer, device, intent(inout) :: cnt(nys-1:nye+1), cnt2(nys:nye)
     integer, device, intent(inout) :: flag(np,nys:nye)
     real(8), device, intent(inout) :: bff_ptcl(ndim*np,nys-1:nye+1)
-    integer                        :: tmp
-    
+    integer                        :: tmp, j, ii, jpos, idim
+
     j = (blockIdx%x-1)*blockDim%x+threadIdx%x+nys-1
     if (nys <= j .and. j <= nye) then
       do ii = 1, np2(j,isp)
@@ -332,7 +346,7 @@ contains
                       bff_rcv(1),12*(nxe-nxs+1),mnpr,ndown,100, &
                       ncomw,nstat,nerr)
 
-    !$cuf kenel do <<<*,*>>>
+    !$cuf kernel do <<<*,*>>>
     do i=nxs,nxe
        ii = 12*(i-nxs)
        df(1,i,nys-2) = bff_rcv(ii+1)
@@ -364,7 +378,7 @@ contains
 
     integer, intent(in)            :: nxs, nxe, nys, nye, nxgs, nxge
     real(8), device, intent(inout) :: uj(3,nxgs-2:nxge+2,nys-2:nye+2)
-    integer                        :: i, ii
+    integer                        :: i, ii, j, ieq
     real(8), device                :: bff_rcv(6*(nxe-nxs+4+1)), bff_snd(6*(nxe-nxs+4+1))
 
     if(.not.is_init)then
@@ -482,7 +496,7 @@ contains
        uj(3,i,nys-1) = bff_rcv(ii+6)
     enddo
 
-    !$cuf kernel (2) do <<<*,*>>>
+    !$cuf kernel do (2) <<<*,*>>>
     do j = nys-2,nye+2
       do ieq = 1,3
          uj(ieq,nxe-1,j) = uj(ieq,nxe-1,j)+uj(ieq,nxs-2,j)
@@ -508,8 +522,8 @@ contains
   subroutine boundary_periodic__phi(phi,nxs,nxe,nys,nye,l)
 
     integer, intent(in)            :: nxs, nxe, nys, nye, l
-    real(8), devive, intent(inout) :: phi(nxs-1:nxe+1,nys-1:nye+1)
-    integer                        :: i, ii
+    real(8), device, intent(inout) :: phi(nxs-1:nxe+1,nys-1:nye+1)
+    integer                        :: i, ii, j
     real(8), device                :: bff_snd(nxe-nxs+1), bff_rcv(nxe-nxs+1)
 
     if(.not.is_init)then

@@ -1,4 +1,5 @@
 module field
+  use cudafor
   use mpi
   implicit none
 
@@ -188,17 +189,15 @@ contains
     
     Th = dim3(64,1,1)
     Bl = dim3(ceiling(real(nxe-nxs+1)/Th%x),ceiling(real(nye-nys+1)/Th%y),1)
-    call ele_cur_ker<<<Bl,Th>>>(uj,up,gp,cumcnt,ndim,np,nsp,nxgs,nxge,nxs,nxe,nys,nye,q,delx,d_delx,d_delt)
-
-
+    call ele_cur_ker<<<Bl,Th>>>(uj,up,gp,cumcnt,ndim,np,nsp,nxgs,nxge,nxs,nxe,nys,nye,c,q(1),q(2),delx,d_delx,d_delt)
 
   end subroutine ele_cur
 
   attributes(global) &
-  subroutine ele_cur_ker(uj,up,gp,cumcnt,ndim,np,nsp,nxgs,nxge,nxs,nxe,nys,nye,q,delx,d_delx,d_delt)
+  subroutine ele_cur_ker(uj,up,gp,cumcnt,ndim,np,nsp,nxgs,nxge,nxs,nxe,nys,nye,c,q1,q2,delx,d_delx,d_delt)
     implicit none
     integer, value               :: ndim, np, nsp, nxgs, nxge, nxs, nxe, nys, nye
-    real(8), value               :: q(nsp), delx, d_delx, d_delt
+    real(8), value               :: c, q1, q2, delx, d_delx, d_delt
     integer, device, intent(in)  :: cumcnt(nxgs:nxge+1, nys:nye, nsp)
     real(8), device, intent(out) :: uj(3, nxgs-2:nxge+2, nys-2:nye+2)
     real(8), device, intent(in)  :: up(ndim, np, nys:nye, nsp)
@@ -206,8 +205,11 @@ contains
     real(8), parameter :: fac = 1d0/3d0
     real(8) :: dh, gvz, s1_1, s1_2, s1_3, smo_1, smo_2, smo_3, tmp
     real(8) :: s0(-2:2, 2), ds(-2:2, 2)
-    real(8) :: pjx(-2:2, -2:2), pjy(-2:2, -2:2), pjz(-2:2, -2:2), pjtmp(-2:2, -2:2)
+    real(8) :: pjx(-2:2, -2:2), pjy(-2:2, -2:2), pjz(-2:2, -2:2), pjtmp(-2:2, -2:2), q(2)
     integer :: i, j, ii, isp, i2, inc, ip, jp
+
+    q(1) = q1
+    q(2) = q2
 
     !--------------Charge Conservation Method -------------!
     !---- Density Decomposition (Esirkepov, CPC, 2001) ----!
@@ -270,7 +272,7 @@ contains
 
             ds(-2:2,1:2) = ds(-2:2,1:2)-s0(-2:2,1:2)
 
-            gvz = gp(5,ii,j,isp)/dsqrt(1.+(+gp(3,ii,j,isp)*gp(3,ii,j,isp) &
+            gvz = gp(5,ii,j,isp)/sqrt(1.+(+gp(3,ii,j,isp)*gp(3,ii,j,isp) &
                                            +gp(4,ii,j,isp)*gp(4,ii,j,isp) &
                                            +gp(5,ii,j,isp)*gp(5,ii,j,isp))/(c*c) )
 
@@ -306,9 +308,9 @@ contains
 
       do jp=-2,2
          do ip=-2,2
-            uj(1,i+ip,j+jp) = uj(1,i+ip,j+jp)+pjx(ip,jp)
-            uj(2,i+ip,j+jp) = uj(2,i+ip,j+jp)+pjy(ip,jp)
-            uj(3,i+ip,j+jp) = uj(3,i+ip,j+jp)+pjz(ip,jp)
+            tmp = atomicadd(uj(1,i+ip,j+jp),pjx(ip,jp))
+            tmp = atomicadd(uj(2,i+ip,j+jp),pjy(ip,jp))
+            tmp = atomicadd(uj(3,i+ip,j+jp),pjz(ip,jp))
          enddo
       enddo
     endif
@@ -325,8 +327,8 @@ contains
     interface
        ! set boundary for potential
        subroutine set_boundary_phi(phi,nxs,nxe,nys,nye,l)
-         real(8), ,device, intent(inout) :: phi(nxs-1:nxe+1,nys-1:nye+1)
-         integer, intent(in)             :: nxs, nxe, nys, nye, l
+         real(8), device, intent(inout) :: phi(nxs-1:nxe+1,nys-1:nye+1)
+         integer, intent(in)            :: nxs, nxe, nys, nye, l
        end subroutine set_boundary_phi
     end interface
 
@@ -448,7 +450,7 @@ contains
        !$cuf kernel do (2) <<<*,*>>>
        do j=nys,nye
        do i=nxs,nxe
-       db(l,i,j) = phi(i,j)
+         db(l,i,j) = phi(i,j)
        enddo
        enddo
 

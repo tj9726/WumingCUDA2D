@@ -1,5 +1,5 @@
 module sort
-
+  use cudafor
   implicit none
 
   private
@@ -121,6 +121,9 @@ contains
     integer, device, intent(inout) :: sum_cnt(nxs:nxe+1, nys:nye)
     
     integer :: i, j, ii, tmp
+
+    j = (blockIdx%x-1)*blockDim%x+threadIdx%x+nys-1
+    ii = (blockIdx%y-1)*blockDim%y+threadIdx%y
 
     if (nys <= j .and. j <= nye .and. 1 <= ii .and. ii <= np2(j, isp)) then
       i = int(up(1,ii,j,isp))
