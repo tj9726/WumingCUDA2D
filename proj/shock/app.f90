@@ -136,7 +136,7 @@ contains
       ! output moments and electromagnetic fields
       if (mod(it, intvl_mom) == 0) then
         call mom_calc__accl(gp, up, uf, cumcnt, nxs, nxe)
-        call mom_calc__nv(nvector, ttensor, gp, np2)
+        call mom_calc__nt(nvector, ttensor, gp, np2)
         call bc__mom(nvector, ttensor)
         call io__mom(nvector, ttensor, uf, it)
       end if
