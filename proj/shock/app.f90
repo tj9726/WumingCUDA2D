@@ -319,7 +319,7 @@ contains
     ! set physical parameters
     delt = cfl * delx / c
     u0 = -abs(u_inject)
-    gam0 = sqrt(1.0d0 + u0 * u0 / (c * c)))
+    gam0 = sqrt(1.0d0 + u0 * u0 / (c * c))
     v0 = u0 / gam0
     wpe = omega_pe
     wge = omega_pe * sqrt(sigma_e)
