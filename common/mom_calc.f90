@@ -195,6 +195,7 @@ contains
           gam = sqrt(1.0d0 + (up(3, ii, j, isp) * up(3, ii, j, isp) &
                               + up(4, ii, j, isp) * up(4, ii, j, isp) &
                               + up(5, ii, j, isp) * up(5, ii, j, isp)) / (c * c))
+          igam = 1.0d0 / gam
 
           !N0
           nvector(1, ih, jh, isp) = nvector(1, ih, jh, isp) + dxm * dym
