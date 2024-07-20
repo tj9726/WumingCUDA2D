@@ -42,7 +42,7 @@ contains
     real(8), intent(in) :: delx_in, delt_in, c_in, q_in(nsp_in), r_in(nsp_in)
     character(len=*), intent(in) :: dir_in
 
-    integer :: psize, fsize, isize
+    integer :: psize, fsize, msize, isize
 
     ndim = ndim_in
     np = np_in
@@ -67,8 +67,9 @@ contains
     ! allocate MPI buffer
     psize = ndim * np * (nye - nys + 5) * nsp
     fsize = 6 * (nxge - nxgs + 5) * (nye - nys + 5)
+    msize = 10 * (nxge - nxgs + 3) * (nye - nys + 3)
     isize = (nye - nys + 1) * nsp
-    allocate (mpibuf1(max(psize, fsize)))
+    allocate (mpibuf1(max(psize, fsize, msize)))
     allocate (mpibuf2(isize))
 
     is_init = .true.

@@ -638,7 +638,7 @@ contains
     !nvector
     do isp = 1, nsp
       !send to rank-1
-!$OMP PARALLEL DO PRIVATE(i,ii)
+!$OMP PARALLEL DO PRIVATE(i,ii,k)
       do i = nxgs - 1, nxge + 1
         ii = 4 * (i - (nxgs - 1))
         do k = 1, 4
@@ -652,7 +652,7 @@ contains
                         ncomw, nstat, nerr)
 
 !$OMP PARALLEL
-!$OMP DO PRIVATE(i,ii)
+!$OMP DO PRIVATE(i,ii,k)
       do i = nxgs - 1, nxge + 1
         ii = 4 * (i - (nxgs - 1))
         do k = 1, 4
@@ -662,7 +662,7 @@ contains
 !$OMP END DO NOWAIT
 
       !send to rank+1
-!$OMP DO PRIVATE(i,ii)
+!$OMP DO PRIVATE(i,ii,k)
       do i = nxgs - 1, nxge + 1
         ii = 4 * (i - (nxgs - 1))
         do k = 1, 4
@@ -676,7 +676,7 @@ contains
                         bff_rcv(1), 4 * (nxge - nxgs + 3), mnpr, ndown, 201, &
                         ncomw, nstat, nerr)
 
-!$OMP PARALLEL DO PRIVATE(i,ii)
+!$OMP PARALLEL DO PRIVATE(i,ii,k)
       do i = nxgs - 1, nxge + 1
         ii = 4 * (i - (nxgs - 1))
         do k = 1, 4
@@ -689,7 +689,7 @@ contains
     !ttensor
     do isp = 1, nsp
       !send to rank-1
-!$OMP PARALLEL DO PRIVATE(i,ii)
+!$OMP PARALLEL DO PRIVATE(i,ii,k)
       do i = nxgs - 1, nxge + 1
         ii = 10 * (i - (nxgs - 1))
         do k = 1, 10
@@ -703,7 +703,7 @@ contains
                         ncomw, nstat, nerr)
 
 !$OMP PARALLEL
-!$OMP DO PRIVATE(i,ii)
+!$OMP DO PRIVATE(i,ii,k)
       do i = nxgs - 1, nxge + 1
         ii = 10 * (i - (nxgs - 1))
         do k = 1, 10
@@ -713,7 +713,7 @@ contains
 !$OMP END DO NOWAIT
 
       !send to rank+1
-!$OMP DO PRIVATE(i,ii)
+!$OMP DO PRIVATE(i,ii,k)
       do i = nxgs - 1, nxge + 1
         ii = 10 * (i - (nxgs - 1))
         do k = 1, 10
@@ -727,7 +727,7 @@ contains
                         bff_rcv(1), 10 * (nxge - nxgs + 3), mnpr, ndown, 201, &
                         ncomw, nstat, nerr)
 
-!$OMP PARALLEL DO PRIVATE(i,ii)
+!$OMP PARALLEL DO PRIVATE(i,ii,k)
       do i = nxgs - 1, nxge + 1
         ii = 10 * (i - (nxgs - 1))
         do k = 1, 10

@@ -880,14 +880,11 @@ contains
     implicit none
     real(8), intent(in) :: x
     real(8) :: y
-    real(8) :: x0
+    real(8) :: x0, xs
 
     x0 = l_damp_ini + nxgs * delx
-    if (x - x0 < l_damp_ini) then
-      y = 5.0d-1 * v0 * cos(pi * (x - x0) / l_damp_ini)
-    else
-      y = v0
-    end if
+    xs = l_damp_ini * 1.0d-1
+    y = 5.0d-1 * v0 * (1.0d0 + tanh((x - x0) / xs))
 
   end function vprofile
 
